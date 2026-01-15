@@ -22,10 +22,7 @@ phases:
     commands:
       - zip -j lambda.zip lambda/trigger.py
       - aws s3 cp lambda.zip s3://$S3_ARTIFACT_BUCKET/lambda/lambda.zip
-      - aws cloudformation package \
-          --template-file $TEMPLATE_FILE \
-          --s3-bucket $S3_ARTIFACT_BUCKET \
-          --output-template-file $PACKAGED_TEMPLATE
+      - aws cloudformation package --template-file $TEMPLATE_FILE --s3-bucket $S3_ARTIFACT_BUCKET --output-template-file $PACKAGED_TEMPLATE
 
 artifacts:
   files:
