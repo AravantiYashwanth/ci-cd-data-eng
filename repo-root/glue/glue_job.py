@@ -1,23 +1,19 @@
 import sys
 from pyspark.context import SparkContext
 from awsglue.context import GlueContext
+from awsglue.job import Job
 from awsglue.utils import getResolvedOptions
-from pyspark.sql.functions import col, trim, to_date
 
-# Read arguments from Glue Job
-args = getResolvedOptions(
-    sys.argv,
-    ["ENV", "INPUT_PATH", "OUTPUT_PATH"]
-)
+args = getResolvedOptions(sys.argv, ['JOB_NAME', 'environment'])
 
 sc = SparkContext()
 glueContext = GlueContext(sc)
-spark = glueContext.spark_session
+job = Job(glueContext)
+job.init(args['JOB_NAME'], args)
 
-print(f"Running Glue job for ENV={args['ENV']}")
+print(f"Glue job started in environment: {args['environment']}")
 
-df = spark.read.option("header", "true").csv(args["INPUT_PATH"])
-
+# Add ETL logic here
 df_clean = (
     df
     .filter(col("title").isNotNull())
@@ -30,3 +26,5 @@ df_clean = (
 df_clean.write.mode("overwrite").parquet(args["OUTPUT_PATH"])
 
 print(f"{args['ENV']} Glue job completed successfully")
+
+job.commit()
