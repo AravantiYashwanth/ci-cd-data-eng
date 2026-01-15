@@ -1,43 +1,84 @@
-version: 0.2
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CI/CD deployed Glue ETL job with environment support
 
-env:
-  variables:
-    AWS_DEFAULT_REGION: ap-south-1
-    TEMPLATE_FILE: cloudformation/stack.yml
-    PACKAGED_TEMPLATE: packaged-template.yaml
-    S3_ARTIFACT_BUCKET: ci-cd-artifacts-<account-id>
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues:
+      - dev
+      - test
+      - prod
+    Description: Deployment environment (dev/test/prod)
 
-phases:
-  install:
-    runtime-versions:
-      python: 3.10
-    commands:
-      - echo "Installing AWS CLI"
-      - pip install --upgrade awscli
+Resources:
 
-  pre_build:
-    commands:
-      - echo "Validating CloudFormation template: $TEMPLATE_FILE"
-      - aws cloudformation validate-template \
-          --template-body file://$TEMPLATE_FILE
+  GlueRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub glue-role-${Environment}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
 
-  build:
-    commands:
-      - echo "Packaging CloudFormation template"
-      - aws cloudformation package \
-          --template-file $TEMPLATE_FILE \
-          --s3-bucket $S3_ARTIFACT_BUCKET \
-          --output-template-file $PACKAGED_TEMPLATE
+  GlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: !Sub netflix-etl-${Environment}
+      Role: !GetAtt GlueRole.Arn
+      Command:
+        Name: glueetl
+        ScriptLocation: !Sub s3://${AWS::AccountId}-ci-cd-artifacts/glue/glue_job.py
+      GlueVersion: "4.0"
+      WorkerType: G.1X
+      NumberOfWorkers: 2
+      DefaultArguments:
+        "--ENV": !Ref Environment
+        "--INPUT_PATH": !Sub s3://project-${Environment}-raw-cicd/netflix_titles.csv
+        "--OUTPUT_PATH": !Sub s3://project-${Environment}-clean-cicd/netflix/
+        "--enable-continuous-cloudwatch-log": "true"
+        "--enable-metrics": "true"
 
-  post_build:
-    commands:
-      - echo "Build completed successfully"
-      - echo "Generated files:"
-      - ls -lh
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub lambda-role-${Environment}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AWSGlueConsoleFullAccess
 
-artifacts:
-  files:
-    - packaged-template.yaml
-    - cloudformation/**/*
-    - glue/**/*
-    - lambda/**/*
+  TriggerLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub glue-trigger-${Environment}
+      Runtime: python3.10
+      Handler: app.lambda_handler
+      Role: !GetAtt LambdaRole.Arn
+      Code:
+        S3Bucket: !Sub ${AWS::AccountId}-ci-cd-artifacts
+        S3Key: lambda/app.zip
+      Environment:
+        Variables:
+          ENV: !Ref Environment
+          GLUE_JOB_NAME: !Ref GlueJob
+
+Outputs:
+  GlueJobName:
+    Description: Glue Job Name
+    Value: !Ref GlueJob
+
+  LambdaFunctionName:
+    Description: Trigger Lambda Function Name
+    Value: !Ref TriggerLambda
