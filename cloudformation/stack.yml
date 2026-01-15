@@ -1,7 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: CI/CD Glue ETL with Lambda trigger
 
-
 Parameters:
   Environment:
     Type: String
@@ -38,7 +37,7 @@ Resources:
       Role: !GetAtt GlueExecutionRole.Arn
       Command:
         Name: glueetl
-        ScriptLocation: !Sub s3://${ArtifactBucket}/glue/glue_job.py
+        ScriptLocation: glue/glue_job.py   # ✅ LOCAL PATH (IMPORTANT)
       GlueVersion: "4.0"
       WorkerType: G.1X
       NumberOfWorkers: 2
