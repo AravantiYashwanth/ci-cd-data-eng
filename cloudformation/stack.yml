@@ -81,7 +81,7 @@ Resources:
       Timeout: 60
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: lambda/trigger.py
+        S3Key: lambda/lambda.zip
       Environment:
         Variables:
           ENV: !Ref Environment
