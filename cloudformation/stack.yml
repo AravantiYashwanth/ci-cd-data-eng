@@ -4,7 +4,15 @@ Description: CI/CD Glue ETL with Lambda trigger
 Parameters:
   Environment:
     Type: String
-    AllowedValues: [dev, test, prod]
+    AllowedValues:
+      - dev
+      - test
+      - prod
+    Description: Deployment environment
+
+  ArtifactBucket:
+    Type: String
+    Description: S3 bucket used by CodeBuild for artifacts
 
 Resources:
 
@@ -29,7 +37,7 @@ Resources:
       Role: !GetAtt GlueExecutionRole.Arn
       Command:
         Name: glueetl
-        ScriptLocation: glue/glue_job.py
+        ScriptLocation: !Sub s3://${ArtifactBucket}/glue/glue_job.py
       GlueVersion: "4.0"
       WorkerType: G.1X
       NumberOfWorkers: 2
@@ -72,7 +80,7 @@ Resources:
       Role: !GetAtt LambdaExecutionRole.Arn
       Timeout: 60
       Code:
-        S3Bucket: !Ref S3_ARTIFACT_BUCKET
+        S3Bucket: !Ref ArtifactBucket
         S3Key: lambda/trigger.py
       Environment:
         Variables:
