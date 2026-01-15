@@ -12,16 +12,25 @@ phases:
     runtime-versions:
       python: 3.10
     commands:
+      - echo "Installing AWS CLI"
       - pip install --upgrade awscli
 
   pre_build:
     commands:
+      - echo "Validating CloudFormation template"
       - aws cloudformation validate-template --template-body file://$TEMPLATE_FILE
 
   build:
     commands:
-      - zip -j lambda.zip lambda/trigger.py
+      - echo "Packaging Lambda function"
+      - cd lambda
+      - zip -r ../lambda.zip trigger.py
+      - cd ..
+
+      - echo "Uploading Lambda artifact to S3"
       - aws s3 cp lambda.zip s3://$S3_ARTIFACT_BUCKET/lambda/lambda.zip
+
+      - echo "Packaging CloudFormation template"
       - aws cloudformation package --template-file $TEMPLATE_FILE --s3-bucket $S3_ARTIFACT_BUCKET --output-template-file $PACKAGED_TEMPLATE
 
 artifacts:

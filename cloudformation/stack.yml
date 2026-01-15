@@ -1,21 +1,19 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: CI/CD Glue ETL with Lambda trigger
+Description: CI/CD Glue ETL with Lambda trigger from existing S3 bucket
 
 Parameters:
   Environment:
     Type: String
-    AllowedValues:
-      - dev
-      - test
-      - prod
-    Description: Deployment environment
+    AllowedValues: [dev, test, prod]
 
   ArtifactBucket:
     Type: String
-    Description: S3 bucket used by CodeBuild for artifacts
 
 Resources:
 
+# -------------------------------------------------
+# GLUE ROLE
+# -------------------------------------------------
   GlueExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -28,34 +26,33 @@ Resources:
               Service: glue.amazonaws.com
             Action: sts:AssumeRole
       ManagedPolicyArns:
-        # Glue service permissions
         - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
-        # ✅ S3 full access for Glue (as requested)
         - arn:aws:iam::aws:policy/AmazonS3FullAccess
 
+# -------------------------------------------------
+# GLUE JOB
+# -------------------------------------------------
   GlueJob:
     Type: AWS::Glue::Job
     Properties:
       Name: !Sub glue-etl-job-${Environment}
       Role: !GetAtt GlueExecutionRole.Arn
-      Command:
-        Name: glueetl
-        # Path resolved relative to cloudformation/stack.yml
-        ScriptLocation: ../glue/glue_job.py
       GlueVersion: "4.0"
       WorkerType: G.1X
       NumberOfWorkers: 2
-      Timeout: 10
+      Command:
+        Name: glueetl
+        ScriptLocation: !Sub s3://project-${Environment}-scripts-cicd/glue/glue_job.py
       DefaultArguments:
-        "--job-language": "python"
         "--ENV": !Ref Environment
-        "--INPUT_PATH": !Sub s3://project-${Environment}-raw-cicd/netflix_titles.csv
-        "--OUTPUT_PATH": !Sub s3://project-${Environment}-clean-cicd/netflix/
 
-  LambdaExecutionRole:
+# -------------------------------------------------
+# GLUE TRIGGER LAMBDA ROLE
+# -------------------------------------------------
+  GlueTriggerLambdaRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub lambda-trigger-role-${Environment}
+      RoleName: !Sub glue-trigger-role-${Environment}
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -63,30 +60,106 @@ Resources:
             Principal:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: GlueInvokePolicy
+        - PolicyName: GlueInvoke
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
-                Action:
-                  - glue:StartJobRun
+                Action: glue:StartJobRun
                 Resource: "*"
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
 
+# -------------------------------------------------
+# GLUE TRIGGER LAMBDA
+# -------------------------------------------------
   GlueTriggerLambda:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub glue-trigger-${Environment}
       Runtime: python3.10
       Handler: trigger.lambda_handler
-      Role: !GetAtt LambdaExecutionRole.Arn
-      Timeout: 60
+      Role: !GetAtt GlueTriggerLambdaRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: lambda/lambda.zip
       Environment:
         Variables:
-          ENV: !Ref Environment
           GLUE_JOB_NAME: !Ref GlueJob
+
+# -------------------------------------------------
+# PERMISSION FOR S3 TO INVOKE GLUE LAMBDA
+# -------------------------------------------------
+  AllowS3InvokeGlueLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref GlueTriggerLambda
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub arn:aws:s3:::project-${Environment}-raw-cicd
+
+# -------------------------------------------------
+# CUSTOM RESOURCE ROLE (MODIFIES EXISTING BUCKET)
+# -------------------------------------------------
+  S3NotificationCustomRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3NotificationPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutBucketNotificationConfiguration
+                Resource: !Sub arn:aws:s3:::project-${Environment}-raw-cicd
+
+# -------------------------------------------------
+# CUSTOM RESOURCE LAMBDA
+# -------------------------------------------------
+  S3NotificationLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.10
+      Handler: index.handler
+      Role: !GetAtt S3NotificationCustomRole.Arn
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import json, boto3, cfnresponse
+          def handler(event, context):
+              s3 = boto3.client("s3")
+              bucket = event["ResourceProperties"]["Bucket"]
+              lambda_arn = event["ResourceProperties"]["LambdaArn"]
+              if event["RequestType"] in ["Create", "Update"]:
+                  s3.put_bucket_notification_configuration(
+                      Bucket=bucket,
+                      NotificationConfiguration={
+                          "LambdaFunctionConfigurations": [{
+                              "LambdaFunctionArn": lambda_arn,
+                              "Events": ["s3:ObjectCreated:*"]
+                          }]
+                      }
+                  )
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+
+# -------------------------------------------------
+# CUSTOM RESOURCE
+# -------------------------------------------------
+  AttachNotificationToExistingBucket:
+    Type: Custom::S3Notification
+    DependsOn: AllowS3InvokeGlueLambda
+    Properties:
+      ServiceToken: !GetAtt S3NotificationLambda.Arn
+      Bucket: !Sub project-${Environment}-raw-cicd
+      LambdaArn: !GetAtt GlueTriggerLambda.Arn
