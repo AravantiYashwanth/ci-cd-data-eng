@@ -1,0 +1,63 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [dev, test, prod]
+
+Resources:
+
+  GlueRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+
+  GlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: !Sub "netflix-etl-${Environment}"
+      Role: !GetAtt GlueRole.Arn
+      Command:
+        Name: glueetl
+        ScriptLocation: s3://ci-cd-artifacts/glue/glue_job.py
+      GlueVersion: "4.0"
+      WorkerType: G.1X
+      NumberOfWorkers: 2
+      DefaultArguments:
+        "--ENV": !Ref Environment
+
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AWSGlueConsoleFullAccess
+
+  TriggerLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.10
+      Handler: app.lambda_handler
+      Role: !GetAtt LambdaRole.Arn
+      Code:
+        S3Bucket: ci-cd-artifacts
+        S3Key: lambda/app.zip
+      Environment:
+        Variables:
+          ENV: !Ref Environment
+          GLUE_JOB_NAME: !Ref GlueJob
