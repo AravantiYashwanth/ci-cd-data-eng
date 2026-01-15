@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CI/CD Glue ETL with Lambda trigger
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [dev, test, prod]
+
+Resources:
+
+  GlueExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub glue-execution-role-${Environment}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+
+  GlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: !Sub glue-etl-job-${Environment}
+      Role: !GetAtt GlueExecutionRole.Arn
+      Command:
+        Name: glueetl
+        ScriptLocation: glue/glue_job.py
+      GlueVersion: "4.0"
+      WorkerType: G.1X
+      NumberOfWorkers: 2
+      Timeout: 10
+      DefaultArguments:
+        "--job-language": "python"
+        "--ENV": !Ref Environment
+        "--INPUT_PATH": !Sub s3://project-${Environment}-raw-cicd/netflix_titles.csv
+        "--OUTPUT_PATH": !Sub s3://project-${Environment}-clean-cicd/netflix/
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub lambda-trigger-role-${Environment}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: GlueInvokePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - glue:StartJobRun
+                Resource: "*"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  GlueTriggerLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub glue-trigger-${Environment}
+      Runtime: python3.10
+      Handler: trigger.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 60
+      Code:
+        S3Bucket: !Ref S3_ARTIFACT_BUCKET
+        S3Key: lambda/trigger.py
+      Environment:
+        Variables:
+          ENV: !Ref Environment
+          GLUE_JOB_NAME: !Ref GlueJob
