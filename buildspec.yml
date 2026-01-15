@@ -3,7 +3,7 @@ version: 0.2
 env:
   variables:
     AWS_DEFAULT_REGION: ap-south-1
-    TEMPLATE_FILE: template.yaml
+    TEMPLATE_FILE: cloudformation/stack.yml
     PACKAGED_TEMPLATE: packaged-template.yaml
     S3_ARTIFACT_BUCKET: ci-cd-artifacts-<account-id>
 
@@ -12,19 +12,19 @@ phases:
     runtime-versions:
       python: 3.10
     commands:
-      - echo "Installing dependencies"
+      - echo "Installing AWS CLI"
       - pip install --upgrade awscli
 
   pre_build:
     commands:
-      - echo "Validating CloudFormation template"
-      - aws cloudformation validate-template --template-body file://$TEMPLATE_FILE
+      - echo "Validating CloudFormation template: $TEMPLATE_FILE"
+      - aws cloudformation validate-template \
+          --template-body file://$TEMPLATE_FILE
 
   build:
     commands:
       - echo "Packaging CloudFormation template"
-      - |
-        aws cloudformation package \
+      - aws cloudformation package \
           --template-file $TEMPLATE_FILE \
           --s3-bucket $S3_ARTIFACT_BUCKET \
           --output-template-file $PACKAGED_TEMPLATE
@@ -32,8 +32,12 @@ phases:
   post_build:
     commands:
       - echo "Build completed successfully"
+      - echo "Generated files:"
       - ls -lh
 
 artifacts:
   files:
-    - $PACKAGED_TEMPLATE
+    - packaged-template.yaml
+    - cloudformation/**/*
+    - glue/**/*
+    - lambda/**/*
