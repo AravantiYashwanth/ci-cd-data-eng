@@ -18,8 +18,8 @@ phases:
   pre_build:
     commands:
       - echo "Validating CloudFormation template"
-      - aws cloudformation validate-template \
-          --template-body file://$TEMPLATE_FILE
+      - aws cloudformation validate-template --template-body file://$TEMPLATE_FILE
+
 
   build:
     commands:
