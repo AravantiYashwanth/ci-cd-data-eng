@@ -12,6 +12,9 @@ Parameters:
 
 Resources:
 
+  ################################
+  # IAM ROLE FOR GLUE
+  ################################
   GlueRole:
     Type: AWS::IAM::Role
     Properties:
@@ -26,6 +29,9 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
 
+  ################################
+  # GLUE JOB
+  ################################
   GlueJob:
     Type: AWS::Glue::Job
     Properties:
@@ -33,7 +39,7 @@ Resources:
       Role: !GetAtt GlueRole.Arn
       Command:
         Name: glueetl
-        ScriptLocation: !Sub s3://${AWS::AccountId}-ci-cd-artifacts/glue/glue_job.py
+        ScriptLocation: glue/glue_job.py   # <-- FIXED (LOCAL PATH)
       GlueVersion: "4.0"
       WorkerType: G.1X
       NumberOfWorkers: 2
@@ -44,6 +50,9 @@ Resources:
         "--enable-continuous-cloudwatch-log": "true"
         "--enable-metrics": "true"
 
+  ################################
+  # IAM ROLE FOR LAMBDA
+  ################################
   LambdaRole:
     Type: AWS::IAM::Role
     Properties:
@@ -59,21 +68,29 @@ Resources:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
         - arn:aws:iam::aws:policy/AWSGlueConsoleFullAccess
 
+  ################################
+  # TRIGGER LAMBDA (FIXED)
+  ################################
   TriggerLambda:
     Type: AWS::Lambda::Function
+    DependsOn:
+      - GlueJob
+      - LambdaRole
     Properties:
       FunctionName: !Sub glue-trigger-${Environment}
       Runtime: python3.10
-      Handler: app.lambda_handler
+      Handler: trigger.lambda_handler   # <-- FIXED
       Role: !GetAtt LambdaRole.Arn
-      Code:
-        S3Bucket: !Sub ${AWS::AccountId}-ci-cd-artifacts
-        S3Key: lambda/app.zip
+      Timeout: 60
+      CodeUri: lambda/                  # <-- CRITICAL FIX
       Environment:
         Variables:
           ENV: !Ref Environment
           GLUE_JOB_NAME: !Ref GlueJob
 
+################################
+# OUTPUTS
+################################
 Outputs:
   GlueJobName:
     Description: Glue Job Name
