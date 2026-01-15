@@ -37,7 +37,7 @@ Resources:
       Role: !GetAtt GlueExecutionRole.Arn
       Command:
         Name: glueetl
-        ScriptLocation: glue/glue_job.py   # ✅ LOCAL PATH (IMPORTANT)
+        ScriptLocation: ../glue/glue_job.py   # ✅ FIXED PATH
       GlueVersion: "4.0"
       WorkerType: G.1X
       NumberOfWorkers: 2
