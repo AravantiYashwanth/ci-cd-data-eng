@@ -23,7 +23,7 @@ Resources:
   GlueJob:
     Type: AWS::Glue::Job
     Properties:
-      Name: !Sub "netflix-etl-${Environment}"
+      Name: netflix-etl-dev
       Role: !GetAtt GlueRole.Arn
       Command:
         Name: glueetl
@@ -32,7 +32,9 @@ Resources:
       WorkerType: G.1X
       NumberOfWorkers: 2
       DefaultArguments:
-        "--ENV": !Ref Environment
+        "--ENV": "dev"
+        "--INPUT_PATH": "s3://project-raw-cicd/netflix_titles.csv"
+        "--OUTPUT_PATH": "s3://project-clean-cicd/netflix/"
 
   LambdaRole:
     Type: AWS::IAM::Role
