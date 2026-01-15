@@ -28,7 +28,10 @@ Resources:
               Service: glue.amazonaws.com
             Action: sts:AssumeRole
       ManagedPolicyArns:
+        # Glue service permissions
         - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+        # ✅ S3 full access for Glue (as requested)
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
 
   GlueJob:
     Type: AWS::Glue::Job
@@ -37,7 +40,8 @@ Resources:
       Role: !GetAtt GlueExecutionRole.Arn
       Command:
         Name: glueetl
-        ScriptLocation: ../glue/glue_job.py   # ✅ FIXED PATH
+        # Path resolved relative to cloudformation/stack.yml
+        ScriptLocation: ../glue/glue_job.py
       GlueVersion: "4.0"
       WorkerType: G.1X
       NumberOfWorkers: 2
