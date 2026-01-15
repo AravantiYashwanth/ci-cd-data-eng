@@ -23,10 +23,7 @@ phases:
   build:
     commands:
       - echo "Packaging CloudFormation template"
-      - aws cloudformation package \
-          --template-file $TEMPLATE_FILE \
-          --s3-bucket $S3_ARTIFACT_BUCKET \
-          --output-template-file $PACKAGED_TEMPLATE
+      - aws cloudformation package --template-file $TEMPLATE_FILE --s3-bucket $S3_ARTIFACT_BUCKET --output-template-file $PACKAGED_TEMPLATE
 
 artifacts:
   files:
