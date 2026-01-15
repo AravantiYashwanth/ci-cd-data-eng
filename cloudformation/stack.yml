@@ -1,15 +1,21 @@
 AWSTemplateFormatVersion: "2010-09-09"
+Description: CI/CD deployed Glue ETL job with environment support
 
 Parameters:
   Environment:
     Type: String
-    AllowedValues: [dev, test, prod]
+    AllowedValues:
+      - dev
+      - test
+      - prod
+    Description: Deployment environment (dev/test/prod)
 
 Resources:
 
   GlueRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub glue-role-${Environment}
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -23,22 +29,25 @@ Resources:
   GlueJob:
     Type: AWS::Glue::Job
     Properties:
-      Name: netflix-etl-dev
+      Name: !Sub netflix-etl-${Environment}
       Role: !GetAtt GlueRole.Arn
       Command:
         Name: glueetl
-        ScriptLocation: s3://ci-cd-artifacts/glue/glue_job.py
+        ScriptLocation: !Sub s3://${AWS::AccountId}-ci-cd-artifacts/glue/glue_job.py
       GlueVersion: "4.0"
       WorkerType: G.1X
       NumberOfWorkers: 2
       DefaultArguments:
-        "--ENV": "dev"
-        "--INPUT_PATH": "s3://project-raw-cicd/netflix_titles.csv"
-        "--OUTPUT_PATH": "s3://project-clean-cicd/netflix/"
+        "--ENV": !Ref Environment
+        "--INPUT_PATH": !Sub s3://project-${Environment}-raw-cicd/netflix_titles.csv
+        "--OUTPUT_PATH": !Sub s3://project-${Environment}-clean-cicd/netflix/
+        "--enable-continuous-cloudwatch-log": "true"
+        "--enable-metrics": "true"
 
   LambdaRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub lambda-role-${Environment}
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -53,13 +62,23 @@ Resources:
   TriggerLambda:
     Type: AWS::Lambda::Function
     Properties:
+      FunctionName: !Sub glue-trigger-${Environment}
       Runtime: python3.10
       Handler: app.lambda_handler
       Role: !GetAtt LambdaRole.Arn
       Code:
-        S3Bucket: ci-cd-artifacts
+        S3Bucket: !Sub ${AWS::AccountId}-ci-cd-artifacts
         S3Key: lambda/app.zip
       Environment:
         Variables:
           ENV: !Ref Environment
           GLUE_JOB_NAME: !Ref GlueJob
+
+Outputs:
+  GlueJobName:
+    Description: Glue Job Name
+    Value: !Ref GlueJob
+
+  LambdaFunctionName:
+    Description: Trigger Lambda Function Name
+    Value: !Ref TriggerLambda
