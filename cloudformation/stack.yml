@@ -1,6 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: CI/CD Glue ETL with Lambda trigger
 
+
 Parameters:
   Environment:
     Type: String
