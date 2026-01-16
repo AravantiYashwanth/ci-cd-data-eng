@@ -3,10 +3,9 @@ version: 0.2
 env:
   variables:
     AWS_DEFAULT_REGION: ap-south-1
-    ENV: dev
     TEMPLATE_FILE: cloudformation/stack.yml
     PACKAGED_TEMPLATE: packaged-template.yaml
-    S3_ARTIFACT_BUCKET: ci-cd-artifacts-data
+    ARTIFACT_BUCKET: ci-cd-artifacts-data
 
 phases:
   install:
@@ -14,31 +13,54 @@ phases:
       python: 3.10
     commands:
       - set -e
-      - "echo Installing AWS CLI"
+      - echo "Installing AWS CLI"
       - pip install --upgrade awscli
 
   pre_build:
     commands:
-      - "echo -------------------------------------"
-      - "echo Environment : $ENV"
-      - "echo Region : $AWS_DEFAULT_REGION"
-      - "echo Template file : $TEMPLATE_FILE"
-      - "echo -------------------------------------"
-      - aws cloudformation validate-template --template-body file://$TEMPLATE_FILE
+      - echo "-------------------------------------"
+      - echo "Environment        : $ENV"
+      - echo "Region             : $AWS_DEFAULT_REGION"
+      - echo "Template file      : $TEMPLATE_FILE"
+      - echo "Artifact bucket    : $ARTIFACT_BUCKET"
+      - echo "-------------------------------------"
+
+      # Derive environment-specific data bucket
+      - export DATA_BUCKET=project-$ENV-ci-cd-21166
+      - echo "Data bucket        : $DATA_BUCKET"
+
+      # Validate CloudFormation template
+      - aws cloudformation validate-template \
+          --template-body file://$TEMPLATE_FILE
 
   build:
     commands:
-      - "echo Packaging Lambda function"
-      - rm -f lambda.zip
-      - cd lambda && zip -r ../lambda.zip trigger.py && cd ..
-      - "echo Uploading Lambda artifact to S3"
-      - aws s3 cp lambda.zip s3://$S3_ARTIFACT_BUCKET/$ENV/lambda/lambda.zip
-      - "echo Packaging CloudFormation template"
-      - aws cloudformation package --template-file $TEMPLATE_FILE --s3-bucket $S3_ARTIFACT_BUCKET --s3-prefix $ENV/cloudformation --output-template-file $PACKAGED_TEMPLATE
+      - echo "-------------------------------------"
+      - echo "Uploading Glue and Lambda scripts to S3"
+      - echo "-------------------------------------"
+
+      # Upload Glue scripts
+      - aws s3 sync glue/ s3://$DATA_BUCKET/scripts/glue/
+
+      # Upload Lambda scripts
+      - aws s3 sync lambda/ s3://$DATA_BUCKET/scripts/lambda/
+
+      - echo "-------------------------------------"
+      - echo "Packaging CloudFormation template"
+      - echo "-------------------------------------"
+
+      - aws cloudformation package \
+          --template-file $TEMPLATE_FILE \
+          --s3-bucket $ARTIFACT_BUCKET \
+          --s3-prefix $ENV/cloudformation \
+          --output-template-file $PACKAGED_TEMPLATE
 
   post_build:
     commands:
-      - "echo Build completed successfully for environment $ENV"
+      - echo "-------------------------------------"
+      - echo "Build completed successfully"
+      - echo "Environment : $ENV"
+      - echo "-------------------------------------"
 
 artifacts:
   files:

@@ -3,35 +3,72 @@ import os
 import urllib.parse
 import logging
 
+# ---------------------------------------------------
+# LOGGING SETUP
+# ---------------------------------------------------
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+# ---------------------------------------------------
+# AWS CLIENTS
+# ---------------------------------------------------
 glue = boto3.client("glue")
 
+# ---------------------------------------------------
+# LAMBDA HANDLER
+# ---------------------------------------------------
 def lambda_handler(event, context):
     """
-    Triggered by S3 ObjectCreated event.
-    Starts Glue job for the uploaded CSV file.
+    Triggered by S3 ObjectCreated events on the raw/ prefix.
+    Starts a Glue job for uploaded CSV files.
     """
 
+    # ---------------------------------------------------
+    # ENVIRONMENT VARIABLES (FROM CLOUDFORMATION)
+    # ---------------------------------------------------
     ENV = os.environ["ENV"]
     GLUE_JOB_NAME = os.environ["GLUE_JOB_NAME"]
+    DATA_BUCKET = os.environ["DATA_BUCKET"]
 
     # ---------------------------------------------------
-    # Extract S3 details
+    # EXTRACT S3 DETAILS
     # ---------------------------------------------------
-    record = event["Records"][0]
-    bucket_name = record["s3"]["bucket"]["name"]
-    object_key = urllib.parse.unquote_plus(
-        record["s3"]["object"]["key"]
-    )
+    try:
+        record = event["Records"][0]
+        bucket_name = record["s3"]["bucket"]["name"]
+        object_key = urllib.parse.unquote_plus(
+            record["s3"]["object"]["key"]
+        )
+    except (KeyError, IndexError) as e:
+        logger.error("Invalid S3 event structure", exc_info=True)
+        raise e
 
-    logger.info(f"Received file: s3://{bucket_name}/{object_key}")
-    logger.info(f"Environment : {ENV}")
+    logger.info(f"Environment        : {ENV}")
+    logger.info(f"Bucket             : {bucket_name}")
+    logger.info(f"Object key         : {object_key}")
 
     # ---------------------------------------------------
-    # Process only CSV files
+    # VALIDATE BUCKET (SAFETY CHECK)
     # ---------------------------------------------------
+    if bucket_name != DATA_BUCKET:
+        logger.warning(
+            f"Event bucket {bucket_name} does not match expected bucket {DATA_BUCKET}"
+        )
+        return {
+            "status": "SKIPPED",
+            "reason": "Unexpected bucket"
+        }
+
+    # ---------------------------------------------------
+    # PROCESS ONLY RAW CSV FILES
+    # ---------------------------------------------------
+    if not object_key.startswith("raw/"):
+        logger.info("Skipping object outside raw/ prefix")
+        return {
+            "status": "SKIPPED",
+            "reason": "Not under raw/ prefix"
+        }
+
     if not object_key.lower().endswith(".csv"):
         logger.info("Skipping non-CSV file")
         return {
@@ -39,31 +76,44 @@ def lambda_handler(event, context):
             "reason": "Not a CSV file"
         }
 
+    # ---------------------------------------------------
+    # BUILD INPUT / OUTPUT PATHS
+    # ---------------------------------------------------
     input_path = f"s3://{bucket_name}/{object_key}"
-    output_path = f"s3://project-{ENV}-clean-cicd/netflix/"
 
-    logger.info(f"Input Path  : {input_path}")
-    logger.info(f"Output Path : {output_path}")
-    logger.info(f"Starting Glue job: {GLUE_JOB_NAME}")
+    # Example output:
+    # s3://project-dev-ci-cd-21166/clean/netflix/
+    output_path = f"s3://{DATA_BUCKET}/clean/"
+
+    logger.info(f"Input path          : {input_path}")
+    logger.info(f"Output path         : {output_path}")
+    logger.info(f"Glue job name       : {GLUE_JOB_NAME}")
 
     # ---------------------------------------------------
-    # Start Glue Job
+    # START GLUE JOB
     # ---------------------------------------------------
-    response = glue.start_job_run(
-        JobName=GLUE_JOB_NAME,
-        Arguments={
-            "--ENV": ENV,
-            "--INPUT_PATH": input_path,
-            "--OUTPUT_PATH": output_path
-        }
-    )
+    try:
+        response = glue.start_job_run(
+            JobName=GLUE_JOB_NAME,
+            Arguments={
+                "--ENV": ENV,
+                "--INPUT_PATH": input_path,
+                "--OUTPUT_PATH": output_path
+            }
+        )
+    except Exception as e:
+        logger.error("Failed to start Glue job", exc_info=True)
+        raise e
 
     job_run_id = response["JobRunId"]
-    logger.info(f"Glue job started successfully: {job_run_id}")
+
+    logger.info(f"Glue job started successfully")
+    logger.info(f"JobRunId            : {job_run_id}")
 
     return {
         "status": "SUCCESS",
         "job_run_id": job_run_id,
         "environment": ENV,
-        "input": input_path
+        "input_path": input_path,
+        "output_path": output_path
     }
