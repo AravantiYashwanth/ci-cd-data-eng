@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  CI/CD deployed Glue ETL job triggered by S3 uploads using Lambda
-  with environment-based isolation and consolidated S3 buckets.
+  CI/CD deployed Glue ETL job triggered by S3 uploads using Lambda,
+  with environment-based isolation.
 
 # -------------------------------------------------
 # PARAMETERS
@@ -46,7 +46,7 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
       Policies:
-        - PolicyName: GlueS3AccessPolicy
+        - PolicyName: GlueS3Access
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -57,15 +57,12 @@ Resources:
                   - s3:DeleteObject
                   - s3:ListBucket
                 Resource:
-                  - !Sub arn:aws:s3:::${Bucket}
-                  - !Sub arn:aws:s3:::${Bucket}/*
-                Condition: {}
-                Sid: GlueBucketAccess
-              - Effect: Allow
-                Action: s3:ListBucket
-                Resource: !Sub arn:aws:s3:::${Bucket}
-          Variables:
-            Bucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
+                  - !Sub
+                    - arn:aws:s3:::${EnvBucket}
+                    - EnvBucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
+                  - !Sub
+                    - arn:aws:s3:::${EnvBucket}/*
+                    - EnvBucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
 
 # -------------------------------------------------
 # GLUE JOB
@@ -81,12 +78,16 @@ Resources:
       Command:
         Name: glueetl
         ScriptLocation: !Sub
-          - s3://${Bucket}/scripts/glue/log_aggregation_job.py
-          - Bucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
+          - s3://${EnvBucket}/scripts/glue/log_aggregation_job.py
+          - EnvBucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
       DefaultArguments:
         --ENV: !Ref Environment
-        --INPUT_PATH: !Sub s3://${Bucket}/raw/
-        --OUTPUT_PATH: !Sub s3://${Bucket}/clean/
+        --INPUT_PATH: !Sub
+          - s3://${EnvBucket}/raw/
+          - EnvBucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
+        --OUTPUT_PATH: !Sub
+          - s3://${EnvBucket}/clean/
+          - EnvBucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
         --job-bookmark-option: job-bookmark-enable
         --enable-continuous-cloudwatch-log: "true"
         --enable-metrics: ""
@@ -119,7 +120,7 @@ Resources:
                 Resource: !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:job/glue-log-aggregation-${Environment}
 
 # -------------------------------------------------
-# LAMBDA FUNCTION – S3 → GLUE TRIGGER (ZIP FIXED)
+# LAMBDA FUNCTION – S3 → GLUE
 # -------------------------------------------------
   GlueTriggerLambda:
     Type: AWS::Lambda::Function
@@ -147,9 +148,9 @@ Resources:
       FunctionName: !Ref GlueTriggerLambda
       Action: lambda:InvokeFunction
       Principal: s3.amazonaws.com
-      SourceArn: !Sub arn:aws:s3:::${Bucket}
-    Metadata:
-      Bucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
+      SourceArn: !Sub
+        - arn:aws:s3:::${EnvBucket}
+        - EnvBucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
 
 # -------------------------------------------------
 # CUSTOM RESOURCE LAMBDA – S3 NOTIFICATION
@@ -165,10 +166,12 @@ Resources:
       Code:
         ZipFile: |
           import json, boto3, urllib.request
+
           def handler(event, context):
               s3 = boto3.client("s3")
               bucket = event["ResourceProperties"]["Bucket"]
               lambda_arn = event["ResourceProperties"]["LambdaArn"]
+
               try:
                   if event["RequestType"] != "Delete":
                       s3.put_bucket_notification_configuration(
@@ -177,11 +180,21 @@ Resources:
                               "LambdaFunctionConfigurations": [{
                                   "LambdaFunctionArn": lambda_arn,
                                   "Events": ["s3:ObjectCreated:*"],
-                                  "Filter": {"Key": {"FilterRules": [{"Name": "prefix","Value": "raw/"}]}}
+                                  "Filter": {
+                                      "Key": {
+                                          "FilterRules": [
+                                              {"Name": "prefix", "Value": "raw/"}
+                                          ]
+                                      }
+                                  }
                               }]
-                          })
+                          }
+                      )
                   else:
-                      s3.put_bucket_notification_configuration(Bucket=bucket, NotificationConfiguration={})
+                      s3.put_bucket_notification_configuration(
+                          Bucket=bucket,
+                          NotificationConfiguration={}
+                      )
                   send(event, context, "SUCCESS")
               except Exception as e:
                   send(event, context, "FAILED", str(e))
@@ -193,8 +206,9 @@ Resources:
                   "PhysicalResourceId": context.log_stream_name,
                   "StackId": event["StackId"],
                   "RequestId": event["RequestId"],
-                  "LogicalResourceId": event["LogicalResourceId"],
+                  "LogicalResourceId": event["LogicalResourceId"]
               }
+
               req = urllib.request.Request(
                   event["ResponseURL"],
                   data=json.dumps(response).encode(),
@@ -220,7 +234,9 @@ Resources:
 Outputs:
   GlueJobName:
     Value: !Ref GlueJob
+
   LambdaFunctionName:
     Value: !Ref GlueTriggerLambda
+
   DataBucket:
     Value: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
