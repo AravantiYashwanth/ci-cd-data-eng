@@ -26,7 +26,7 @@ phases:
       - "echo -------------------------------------"
       - "export DATA_BUCKET=project-$ENV-ci-cd-21166"
       - "echo Data bucket        : $DATA_BUCKET"
-      - "echo Skipping validate-template (handled at deploy)"
+      - "echo Skipping CloudFormation validation; handled at deploy stage"
 
   build:
     commands:
