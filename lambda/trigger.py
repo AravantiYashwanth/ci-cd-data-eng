@@ -11,13 +11,15 @@ glue = boto3.client("glue")
 def lambda_handler(event, context):
     """
     Triggered by S3 ObjectCreated event.
-    Starts Glue job for the uploaded file.
+    Starts Glue job for the uploaded CSV file.
     """
 
-    env = os.environ["ENV"]
-    glue_job_name = os.environ["GLUE_JOB_NAME"]
+    ENV = os.environ["ENV"]
+    GLUE_JOB_NAME = os.environ["GLUE_JOB_NAME"]
 
+    # ---------------------------------------------------
     # Extract S3 details
+    # ---------------------------------------------------
     record = event["Records"][0]
     bucket_name = record["s3"]["bucket"]["name"]
     object_key = urllib.parse.unquote_plus(
@@ -25,8 +27,11 @@ def lambda_handler(event, context):
     )
 
     logger.info(f"Received file: s3://{bucket_name}/{object_key}")
+    logger.info(f"Environment : {ENV}")
 
+    # ---------------------------------------------------
     # Process only CSV files
+    # ---------------------------------------------------
     if not object_key.lower().endswith(".csv"):
         logger.info("Skipping non-CSV file")
         return {
@@ -35,23 +40,30 @@ def lambda_handler(event, context):
         }
 
     input_path = f"s3://{bucket_name}/{object_key}"
-    output_path = f"s3://project-{env}-clean-cicd/netflix/"
+    output_path = f"s3://project-{ENV}-clean-cicd/netflix/"
 
-    logger.info(f"Starting Glue job: {glue_job_name}")
+    logger.info(f"Input Path  : {input_path}")
+    logger.info(f"Output Path : {output_path}")
+    logger.info(f"Starting Glue job: {GLUE_JOB_NAME}")
 
+    # ---------------------------------------------------
+    # Start Glue Job
+    # ---------------------------------------------------
     response = glue.start_job_run(
-        JobName=glue_job_name,
+        JobName=GLUE_JOB_NAME,
         Arguments={
-            "--ENV": env,
+            "--ENV": ENV,
             "--INPUT_PATH": input_path,
             "--OUTPUT_PATH": output_path
         }
     )
 
-    logger.info(f"Glue job started: {response['JobRunId']}")
+    job_run_id = response["JobRunId"]
+    logger.info(f"Glue job started successfully: {job_run_id}")
 
     return {
         "status": "SUCCESS",
-        "job_run_id": response["JobRunId"],
+        "job_run_id": job_run_id,
+        "environment": ENV,
         "input": input_path
     }
