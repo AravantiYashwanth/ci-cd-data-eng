@@ -24,36 +24,20 @@ phases:
       - echo "Template file      : $TEMPLATE_FILE"
       - echo "Artifact bucket    : $ARTIFACT_BUCKET"
       - echo "-------------------------------------"
-
-      # Derive environment-specific data bucket
       - export DATA_BUCKET=project-$ENV-ci-cd-21166
       - echo "Data bucket        : $DATA_BUCKET"
-
-      # Validate CloudFormation template
-      - aws cloudformation validate-template \
-          --template-body file://$TEMPLATE_FILE
+      - aws cloudformation validate-template --template-body file://$TEMPLATE_FILE
 
   build:
     commands:
       - echo "-------------------------------------"
-      - echo "Uploading Glue and Lambda scripts to S3"
-      - echo "-------------------------------------"
-
-      # Upload Glue scripts
+      - echo "Uploading Glue scripts"
       - aws s3 sync glue/ s3://$DATA_BUCKET/scripts/glue/
-
-      # Upload Lambda scripts
+      - echo "Uploading Lambda scripts"
       - aws s3 sync lambda/ s3://$DATA_BUCKET/scripts/lambda/
-
       - echo "-------------------------------------"
       - echo "Packaging CloudFormation template"
-      - echo "-------------------------------------"
-
-      - aws cloudformation package \
-          --template-file $TEMPLATE_FILE \
-          --s3-bucket $ARTIFACT_BUCKET \
-          --s3-prefix $ENV/cloudformation \
-          --output-template-file $PACKAGED_TEMPLATE
+      - aws cloudformation package --template-file $TEMPLATE_FILE --s3-bucket $ARTIFACT_BUCKET --s3-prefix $ENV/cloudformation --output-template-file $PACKAGED_TEMPLATE
 
   post_build:
     commands:
