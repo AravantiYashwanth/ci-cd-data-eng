@@ -104,7 +104,7 @@ Resources:
       SourceArn: !Sub arn:aws:s3:::project-${Environment}-raw-cicd
 
 # -------------------------------------------------
-# CUSTOM RESOURCE ROLE (MODIFY EXISTING BUCKET)
+# CUSTOM RESOURCE ROLE (FIXED IAM PERMISSIONS)
 # -------------------------------------------------
   S3NotificationCustomRole:
     Type: AWS::IAM::Role
@@ -126,11 +126,12 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - s3:PutBucketNotificationConfiguration
+                  - s3:PutBucketNotification
+                  - s3:GetBucketNotification
                 Resource: !Sub arn:aws:s3:::project-${Environment}-raw-cicd
 
 # -------------------------------------------------
-# CUSTOM RESOURCE LAMBDA (FIXED – NO cfnresponse)
+# CUSTOM RESOURCE LAMBDA (PYTHON 3.10 SAFE)
 # -------------------------------------------------
   S3NotificationLambda:
     Type: AWS::Lambda::Function
