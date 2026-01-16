@@ -26,8 +26,7 @@ phases:
       - "echo -------------------------------------"
       - "export DATA_BUCKET=project-$ENV-ci-cd-21166"
       - "echo Data bucket        : $DATA_BUCKET"
-      - "echo Validating CloudFormation template"
-      - "aws cloudformation validate-template --template-body file://$TEMPLATE_FILE"
+      - "echo Skipping validate-template (handled at deploy)"
 
   build:
     commands:
