@@ -93,7 +93,7 @@ Resources:
           GLUE_JOB_NAME: !Ref GlueJob
 
 # -------------------------------------------------
-# PERMISSION FOR S3 TO INVOKE LAMBDA
+# PERMISSION FOR S3 TO INVOKE GLUE LAMBDA
 # -------------------------------------------------
   AllowS3InvokeGlueLambda:
     Type: AWS::Lambda::Permission
@@ -130,7 +130,7 @@ Resources:
                 Resource: !Sub arn:aws:s3:::project-${Environment}-raw-cicd
 
 # -------------------------------------------------
-# CUSTOM RESOURCE LAMBDA
+# CUSTOM RESOURCE LAMBDA (FIXED – NO cfnresponse)
 # -------------------------------------------------
   S3NotificationLambda:
     Type: AWS::Lambda::Function
@@ -142,8 +142,28 @@ Resources:
       Timeout: 60
       Code:
         ZipFile: |
+          import json
           import boto3
-          import cfnresponse
+          import urllib.request
+
+          def send_response(event, context, status, reason=None):
+              response_body = {
+                  "Status": status,
+                  "Reason": reason or "See CloudWatch Logs",
+                  "PhysicalResourceId": context.log_stream_name,
+                  "StackId": event["StackId"],
+                  "RequestId": event["RequestId"],
+                  "LogicalResourceId": event["LogicalResourceId"],
+                  "Data": {}
+              }
+
+              req = urllib.request.Request(
+                  event["ResponseURL"],
+                  data=json.dumps(response_body).encode("utf-8"),
+                  headers={"Content-Type": ""},
+                  method="PUT"
+              )
+              urllib.request.urlopen(req)
 
           def handler(event, context):
               s3 = boto3.client("s3")
@@ -163,14 +183,9 @@ Resources:
                               ]
                           }
                       )
-                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                  send_response(event, context, "SUCCESS")
               except Exception as e:
-                  cfnresponse.send(
-                      event,
-                      context,
-                      cfnresponse.FAILED,
-                      {"Error": str(e)}
-                  )
+                  send_response(event, context, "FAILED", str(e))
 
 # -------------------------------------------------
 # CUSTOM RESOURCE
