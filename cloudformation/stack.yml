@@ -95,7 +95,7 @@ Resources:
         MaxConcurrentRuns: 1
 
 # -------------------------------------------------
-# LAMBDA EXECUTION ROLE
+# LAMBDA ROLE – GLUE TRIGGER
 # -------------------------------------------------
   GlueTriggerLambdaRole:
     Type: AWS::IAM::Role
@@ -140,7 +140,7 @@ Resources:
           DATA_BUCKET: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
 
 # -------------------------------------------------
-# PERMISSION FOR S3 TO INVOKE LAMBDA
+# PERMISSION FOR S3 TO INVOKE GLUE TRIGGER
 # -------------------------------------------------
   AllowS3InvokeGlueLambda:
     Type: AWS::Lambda::Permission
@@ -153,6 +153,35 @@ Resources:
         - EnvBucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
 
 # -------------------------------------------------
+# IAM ROLE – S3 NOTIFICATION CUSTOM RESOURCE
+# -------------------------------------------------
+  S3NotificationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub s3-notification-lambda-role-${Environment}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3NotificationPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketNotification
+                  - s3:PutBucketNotification
+                Resource: !Sub
+                  - arn:aws:s3:::${EnvBucket}
+                  - EnvBucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
+
+# -------------------------------------------------
 # CUSTOM RESOURCE LAMBDA – S3 NOTIFICATION
 # -------------------------------------------------
   S3NotificationLambda:
@@ -161,7 +190,7 @@ Resources:
       FunctionName: !Sub s3-notification-${Environment}
       Runtime: python3.10
       Handler: index.handler
-      Role: !GetAtt GlueTriggerLambdaRole.Arn
+      Role: !GetAtt S3NotificationLambdaRole.Arn
       Timeout: 60
       Code:
         ZipFile: |
