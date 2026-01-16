@@ -8,11 +8,12 @@ Parameters:
 
   ArtifactBucket:
     Type: String
+    Description: S3 bucket containing Lambda artifacts from CodeBuild
 
 Resources:
 
 # -------------------------------------------------
-# GLUE ROLE
+# GLUE EXECUTION ROLE
 # -------------------------------------------------
   GlueExecutionRole:
     Type: AWS::IAM::Role
@@ -63,13 +64,14 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: GlueInvoke
+        - PolicyName: GlueInvokePolicy
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
-                Action: glue:StartJobRun
-                Resource: "*"
+                Action:
+                  - glue:StartJobRun
+                Resource: !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:job/glue-etl-job-${Environment}
 
 # -------------------------------------------------
 # GLUE TRIGGER LAMBDA
@@ -81,15 +83,17 @@ Resources:
       Runtime: python3.10
       Handler: trigger.lambda_handler
       Role: !GetAtt GlueTriggerLambdaRole.Arn
+      Timeout: 60
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: lambda/lambda.zip
+        S3Key: !Sub ${Environment}/lambda/lambda.zip
       Environment:
         Variables:
+          ENV: !Ref Environment
           GLUE_JOB_NAME: !Ref GlueJob
 
 # -------------------------------------------------
-# PERMISSION FOR S3 TO INVOKE GLUE LAMBDA
+# PERMISSION FOR S3 TO INVOKE LAMBDA
 # -------------------------------------------------
   AllowS3InvokeGlueLambda:
     Type: AWS::Lambda::Permission
@@ -100,11 +104,12 @@ Resources:
       SourceArn: !Sub arn:aws:s3:::project-${Environment}-raw-cicd
 
 # -------------------------------------------------
-# CUSTOM RESOURCE ROLE (MODIFIES EXISTING BUCKET)
+# CUSTOM RESOURCE ROLE (MODIFY EXISTING BUCKET)
 # -------------------------------------------------
   S3NotificationCustomRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub s3-notification-role-${Environment}
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -130,28 +135,42 @@ Resources:
   S3NotificationLambda:
     Type: AWS::Lambda::Function
     Properties:
+      FunctionName: !Sub s3-notification-${Environment}
       Runtime: python3.10
       Handler: index.handler
       Role: !GetAtt S3NotificationCustomRole.Arn
       Timeout: 60
       Code:
         ZipFile: |
-          import json, boto3, cfnresponse
+          import boto3
+          import cfnresponse
+
           def handler(event, context):
               s3 = boto3.client("s3")
               bucket = event["ResourceProperties"]["Bucket"]
               lambda_arn = event["ResourceProperties"]["LambdaArn"]
-              if event["RequestType"] in ["Create", "Update"]:
-                  s3.put_bucket_notification_configuration(
-                      Bucket=bucket,
-                      NotificationConfiguration={
-                          "LambdaFunctionConfigurations": [{
-                              "LambdaFunctionArn": lambda_arn,
-                              "Events": ["s3:ObjectCreated:*"]
-                          }]
-                      }
+
+              try:
+                  if event["RequestType"] in ["Create", "Update"]:
+                      s3.put_bucket_notification_configuration(
+                          Bucket=bucket,
+                          NotificationConfiguration={
+                              "LambdaFunctionConfigurations": [
+                                  {
+                                      "LambdaFunctionArn": lambda_arn,
+                                      "Events": ["s3:ObjectCreated:*"]
+                                  }
+                              ]
+                          }
+                      )
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              except Exception as e:
+                  cfnresponse.send(
+                      event,
+                      context,
+                      cfnresponse.FAILED,
+                      {"Error": str(e)}
                   )
-              cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
 
 # -------------------------------------------------
 # CUSTOM RESOURCE
