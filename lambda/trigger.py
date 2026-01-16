@@ -26,9 +26,13 @@ def lambda_handler(event, context):
     # ---------------------------------------------------
     # ENVIRONMENT VARIABLES (FROM CLOUDFORMATION)
     # ---------------------------------------------------
-    ENV = os.environ["ENV"]
-    GLUE_JOB_NAME = os.environ["GLUE_JOB_NAME"]
-    DATA_BUCKET = os.environ["DATA_BUCKET"]
+    ENV = os.environ.get("ENV")
+    GLUE_JOB_NAME = os.environ.get("GLUE_JOB_NAME")
+    DATA_BUCKET = os.environ.get("DATA_BUCKET")
+
+    if not all([ENV, GLUE_JOB_NAME, DATA_BUCKET]):
+        logger.error("Missing required environment variables")
+        raise RuntimeError("Lambda environment not configured correctly")
 
     # ---------------------------------------------------
     # EXTRACT S3 DETAILS
@@ -43,16 +47,17 @@ def lambda_handler(event, context):
         logger.error("Invalid S3 event structure", exc_info=True)
         raise e
 
-    logger.info(f"Environment        : {ENV}")
-    logger.info(f"Bucket             : {bucket_name}")
-    logger.info(f"Object key         : {object_key}")
+    logger.info("----- S3 EVENT RECEIVED -----")
+    logger.info(f"Environment  : {ENV}")
+    logger.info(f"Bucket       : {bucket_name}")
+    logger.info(f"Object key   : {object_key}")
 
     # ---------------------------------------------------
     # VALIDATE BUCKET (SAFETY CHECK)
     # ---------------------------------------------------
     if bucket_name != DATA_BUCKET:
         logger.warning(
-            f"Event bucket {bucket_name} does not match expected bucket {DATA_BUCKET}"
+            f"Skipping event from unexpected bucket: {bucket_name}"
         )
         return {
             "status": "SKIPPED",
@@ -60,7 +65,7 @@ def lambda_handler(event, context):
         }
 
     # ---------------------------------------------------
-    # PROCESS ONLY RAW CSV FILES
+    # PROCESS ONLY raw/ CSV FILES
     # ---------------------------------------------------
     if not object_key.startswith("raw/"):
         logger.info("Skipping object outside raw/ prefix")
@@ -81,13 +86,13 @@ def lambda_handler(event, context):
     # ---------------------------------------------------
     input_path = f"s3://{bucket_name}/{object_key}"
 
-    # Example output:
-    # s3://project-dev-ci-cd-21166/clean/netflix/
+    # Output is always the clean/ prefix
     output_path = f"s3://{DATA_BUCKET}/clean/"
 
-    logger.info(f"Input path          : {input_path}")
-    logger.info(f"Output path         : {output_path}")
-    logger.info(f"Glue job name       : {GLUE_JOB_NAME}")
+    logger.info("----- GLUE JOB DETAILS -----")
+    logger.info(f"Glue job name : {GLUE_JOB_NAME}")
+    logger.info(f"Input path   : {input_path}")
+    logger.info(f"Output path  : {output_path}")
 
     # ---------------------------------------------------
     # START GLUE JOB
@@ -107,13 +112,15 @@ def lambda_handler(event, context):
 
     job_run_id = response["JobRunId"]
 
-    logger.info(f"Glue job started successfully")
-    logger.info(f"JobRunId            : {job_run_id}")
+    logger.info("----- GLUE JOB STARTED -----")
+    logger.info(f"JobRunId     : {job_run_id}")
 
     return {
         "status": "SUCCESS",
         "job_run_id": job_run_id,
         "environment": ENV,
+        "bucket": bucket_name,
+        "object_key": object_key,
         "input_path": input_path,
         "output_path": output_path
     }
