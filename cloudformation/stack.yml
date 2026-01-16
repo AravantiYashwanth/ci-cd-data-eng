@@ -152,7 +152,7 @@ Resources:
           DATA_BUCKET: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
 
 # -------------------------------------------------
-# PERMISSION FOR S3 TO INVOKE LAMBDA
+# PERMISSION FOR S3 TO INVOKE GLUE TRIGGER LAMBDA
 # -------------------------------------------------
   AllowS3InvokeGlueLambda:
     Type: AWS::Lambda::Permission
@@ -165,21 +165,113 @@ Resources:
         - Bucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
 
 # -------------------------------------------------
-# S3 EVENT NOTIFICATION (RAW PREFIX ONLY)
+# IAM ROLE FOR S3 NOTIFICATION CUSTOM RESOURCE
 # -------------------------------------------------
-  S3Notification:
-    Type: AWS::S3::BucketNotification
+  S3NotificationRole:
+    Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub s3-notification-role-${Environment}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: AllowS3NotificationUpdate
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketNotification
+                  - s3:PutBucketNotification
+                Resource: !Sub
+                  - arn:aws:s3:::${Bucket}
+                  - Bucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
+
+# -------------------------------------------------
+# CUSTOM RESOURCE LAMBDA – S3 NOTIFICATION
+# -------------------------------------------------
+  S3NotificationLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub s3-notification-${Environment}
+      Runtime: python3.10
+      Handler: index.handler
+      Role: !GetAtt S3NotificationRole.Arn
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import urllib.request
+
+          def send(event, context, status, reason=None):
+              response = {
+                  "Status": status,
+                  "Reason": reason or "OK",
+                  "PhysicalResourceId": context.log_stream_name,
+                  "StackId": event["StackId"],
+                  "RequestId": event["RequestId"],
+                  "LogicalResourceId": event["LogicalResourceId"],
+                  "Data": {}
+              }
+              req = urllib.request.Request(
+                  event["ResponseURL"],
+                  data=json.dumps(response).encode(),
+                  headers={"Content-Type": ""},
+                  method="PUT"
+              )
+              urllib.request.urlopen(req)
+
+          def handler(event, context):
+              s3 = boto3.client("s3")
+              bucket = event["ResourceProperties"]["Bucket"]
+              lambda_arn = event["ResourceProperties"]["LambdaArn"]
+
+              try:
+                  if event["RequestType"] in ["Create", "Update"]:
+                      s3.put_bucket_notification_configuration(
+                          Bucket=bucket,
+                          NotificationConfiguration={
+                              "LambdaFunctionConfigurations": [
+                                  {
+                                      "LambdaFunctionArn": lambda_arn,
+                                      "Events": ["s3:ObjectCreated:*"],
+                                      "Filter": {
+                                          "Key": {
+                                              "FilterRules": [
+                                                  {"Name": "prefix", "Value": "raw/"}
+                                              ]
+                                          }
+                                      }
+                                  }
+                              ]
+                          }
+                      )
+                  elif event["RequestType"] == "Delete":
+                      s3.put_bucket_notification_configuration(
+                          Bucket=bucket,
+                          NotificationConfiguration={}
+                      )
+                  send(event, context, "SUCCESS")
+              except Exception as e:
+                  send(event, context, "FAILED", str(e))
+
+# -------------------------------------------------
+# ATTACH S3 NOTIFICATION (CUSTOM RESOURCE)
+# -------------------------------------------------
+  AttachS3Notification:
+    Type: Custom::AttachS3Notification
+    DependsOn: AllowS3InvokeGlueLambda
+    Properties:
+      ServiceToken: !GetAtt S3NotificationLambda.Arn
       Bucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
-      NotificationConfiguration:
-        LambdaConfigurations:
-          - Event: s3:ObjectCreated:*
-            Function: !GetAtt GlueTriggerLambda.Arn
-            Filter:
-              S3Key:
-                Rules:
-                  - Name: prefix
-                    Value: raw/
+      LambdaArn: !GetAtt GlueTriggerLambda.Arn
 
 # -------------------------------------------------
 # OUTPUTS
