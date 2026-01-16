@@ -3,7 +3,7 @@ version: 0.2
 env:
   variables:
     AWS_DEFAULT_REGION: ap-south-1
-    ENV: dev                      # overridden by CodePipeline
+    ENV: dev
     TEMPLATE_FILE: cloudformation/stack.yml
     PACKAGED_TEMPLATE: packaged-template.yaml
     S3_ARTIFACT_BUCKET: ci-cd-artifacts-data
@@ -24,26 +24,22 @@ phases:
       - echo "Region           : $AWS_DEFAULT_REGION"
       - echo "Template file    : $TEMPLATE_FILE"
       - echo "-------------------------------------"
-
-      - echo "Validating CloudFormation template"
-      - aws cloudformation validate-template \
-          --template-body file://$TEMPLATE_FILE
+      - aws cloudformation validate-template --template-body file://$TEMPLATE_FILE
 
   build:
     commands:
       - echo "Packaging Lambda function"
-
       - rm -f lambda.zip
       - cd lambda
       - zip -r ../lambda.zip trigger.py
       - cd ..
 
       - echo "Uploading Lambda artifact to S3"
-      - aws s3 cp lambda.zip \
-          s3://$S3_ARTIFACT_BUCKET/$ENV/lambda/lambda.zip
+      - aws s3 cp lambda.zip s3://$S3_ARTIFACT_BUCKET/$ENV/lambda/lambda.zip
 
       - echo "Packaging CloudFormation template"
-      - aws cloudformation package \
+      - |
+        aws cloudformation package \
           --template-file $TEMPLATE_FILE \
           --s3-bucket $S3_ARTIFACT_BUCKET \
           --s3-prefix $ENV/cloudformation \
