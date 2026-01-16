@@ -28,17 +28,17 @@ phases:
 
   build:
     commands:
-      - echo "Packaging Lambda function"
-      - rm -f lambda.zip
-      - cd lambda
-      - zip -r ../lambda.zip trigger.py
-      - cd ..
-
-      - echo "Uploading Lambda artifact to S3"
-      - aws s3 cp lambda.zip s3://$S3_ARTIFACT_BUCKET/$ENV/lambda/lambda.zip
-
-      - echo "Packaging CloudFormation template"
       - |
+        echo "Packaging Lambda function"
+        rm -f lambda.zip
+        cd lambda
+        zip -r ../lambda.zip trigger.py
+        cd ..
+      - |
+        echo "Uploading Lambda artifact to S3"
+        aws s3 cp lambda.zip s3://$S3_ARTIFACT_BUCKET/$ENV/lambda/lambda.zip
+      - |
+        echo "Packaging CloudFormation template"
         aws cloudformation package \
           --template-file $TEMPLATE_FILE \
           --s3-bucket $S3_ARTIFACT_BUCKET \
