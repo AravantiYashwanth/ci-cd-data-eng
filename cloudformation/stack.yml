@@ -128,7 +128,7 @@ Resources:
     Properties:
       FunctionName: !Sub glue-trigger-${Environment}
       Runtime: python3.10
-      Handler: lambda_function.lambda_handler
+      Handler: trigger.lambda_handler
       Role: !GetAtt GlueTriggerLambdaRole.Arn
       Timeout: 60
       Code:
