@@ -31,8 +31,8 @@ phases:
   build:
     commands:
       - "echo -------------------------------------"
-      - "echo Uploading Glue scripts"
-      - "aws s3 sync glue/ s3://$DATA_BUCKET/scripts/glue/"
+      - "echo Uploading Glue script with fixed filename"
+      - "aws s3 cp glue/*.py s3://$DATA_BUCKET/scripts/glue/glue_job.py"
       - "echo -------------------------------------"
       - "echo Packaging Lambda function"
       - "rm -f glue_trigger_lambda.zip"

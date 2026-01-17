@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  CI/CD Glue ETL job triggered by S3 uploads using a single Lambda,
+  CI/CD deployed Glue ETL job triggered by S3 uploads using a single Lambda,
   with environment-based isolation.
 
 # -------------------------------------------------
@@ -10,6 +10,7 @@ Parameters:
   Environment:
     Type: String
     AllowedValues: [dev, test, prod]
+    Description: Deployment environment
 
 # -------------------------------------------------
 # MAPPINGS
@@ -56,11 +57,12 @@ Resources:
                   - s3:DeleteObject
                   - s3:ListBucket
                 Resource:
-                  - !Sub arn:aws:s3:::${EnvBucket}
-                  - !Sub arn:aws:s3:::${EnvBucket}/*
-                Condition: {}
-    Metadata:
-      EnvBucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
+                  - !Sub
+                    - arn:aws:s3:::${EnvBucket}
+                    - EnvBucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
+                  - !Sub
+                    - arn:aws:s3:::${EnvBucket}/*
+                    - EnvBucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
 
 # -------------------------------------------------
 # GLUE JOB
@@ -94,7 +96,7 @@ Resources:
         MaxConcurrentRuns: 1
 
 # -------------------------------------------------
-# LAMBDA ROLE
+# LAMBDA ROLE – GLUE TRIGGER
 # -------------------------------------------------
   GlueTriggerLambdaRole:
     Type: AWS::IAM::Role
@@ -110,7 +112,7 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: StartGlueJob
+        - PolicyName: LambdaGluePolicy
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -119,7 +121,7 @@ Resources:
                 Resource: !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:job/glue-log-aggregation-${Environment}
 
 # -------------------------------------------------
-# SINGLE LAMBDA FUNCTION
+# LAMBDA FUNCTION – S3 → GLUE
 # -------------------------------------------------
   GlueTriggerLambda:
     Type: AWS::Lambda::Function
@@ -136,9 +138,10 @@ Resources:
         Variables:
           ENV: !Ref Environment
           GLUE_JOB_NAME: !Ref GlueJob
+          DATA_BUCKET: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
 
 # -------------------------------------------------
-# ALLOW S3 TO INVOKE LAMBDA
+# PERMISSION FOR S3 TO INVOKE LAMBDA
 # -------------------------------------------------
   AllowS3InvokeGlueLambda:
     Type: AWS::Lambda::Permission
@@ -151,7 +154,7 @@ Resources:
         - EnvBucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
 
 # -------------------------------------------------
-# S3 NOTIFICATION (WORKING, SINGLE LAMBDA)
+# S3 BUCKET NOTIFICATION
 # -------------------------------------------------
   DataBucketNotification:
     Type: AWS::S3::BucketNotification
@@ -172,9 +175,11 @@ Resources:
 # OUTPUTS
 # -------------------------------------------------
 Outputs:
-  LambdaFunctionName:
-    Value: !Ref GlueTriggerLambda
   GlueJobName:
     Value: !Ref GlueJob
+
+  LambdaFunctionName:
+    Value: !Ref GlueTriggerLambda
+
   DataBucket:
     Value: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
