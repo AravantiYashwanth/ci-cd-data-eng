@@ -78,7 +78,7 @@ Resources:
       Command:
         Name: glueetl
         ScriptLocation: !Sub
-          - s3://${EnvBucket}/scripts/glue/glue_job.py
+          - s3://${EnvBucket}/scripts/glue/log_aggregation_job.py
           - EnvBucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
         PythonVersion: "3"
       DefaultArguments:
@@ -117,11 +117,12 @@ Resources:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
-                Action: glue:StartJobRun
+                Action:
+                  - glue:StartJobRun
                 Resource: !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:job/glue-log-aggregation-${Environment}
 
 # -------------------------------------------------
-# LAMBDA FUNCTION – S3 → GLUE
+# SINGLE LAMBDA FUNCTION – S3 → GLUE
 # -------------------------------------------------
   GlueTriggerLambda:
     Type: AWS::Lambda::Function
@@ -154,7 +155,7 @@ Resources:
         - EnvBucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
 
 # -------------------------------------------------
-# S3 BUCKET NOTIFICATION (DIRECT, NO CUSTOM LAMBDA)
+# S3 BUCKET NOTIFICATION → LAMBDA
 # -------------------------------------------------
   DataBucketNotification:
     Type: AWS::S3::BucketNotification

@@ -31,19 +31,26 @@ phases:
   build:
     commands:
       - "echo -------------------------------------"
-      - "echo Uploading Glue scripts"
-      - "aws s3 sync glue/ s3://$DATA_BUCKET/scripts/glue/"
+      - "echo Uploading Glue script (log_aggregation_job.py)"
+
+      - "test -f glue/log_aggregation_job.py"
+      - "aws s3 cp glue/log_aggregation_job.py s3://$DATA_BUCKET/scripts/glue/log_aggregation_job.py"
+
       - "echo -------------------------------------"
       - "echo Packaging Lambda function"
+
       - "rm -f glue_trigger_lambda.zip"
       - "cd lambda"
       - "zip -r ../glue_trigger_lambda.zip ."
       - "cd .."
+
       - "unzip -l glue_trigger_lambda.zip"
       - "echo Uploading Lambda ZIP"
       - "aws s3 cp glue_trigger_lambda.zip s3://$DATA_BUCKET/scripts/lambda/glue_trigger_lambda.zip"
+
       - "echo -------------------------------------"
       - "echo Packaging CloudFormation template"
+
       - "aws cloudformation package --template-file $TEMPLATE_FILE --s3-bucket $ARTIFACT_BUCKET --s3-prefix $ENV/cloudformation --output-template-file $PACKAGED_TEMPLATE"
 
   post_build:
