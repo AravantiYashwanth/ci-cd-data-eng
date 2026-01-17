@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  CI/CD Glue ETL job triggered by S3 uploads using Lambda,
-  with environment-based isolation and custom S3 notification setup.
+  Single Lambda triggered by S3 uploads to start a Glue ETL job.
+  One Lambda per environment. Existing S3 bucket.
 
 # -------------------------------------------------
 # PARAMETERS
@@ -56,12 +56,13 @@ Resources:
                   - s3:DeleteObject
                   - s3:ListBucket
                 Resource:
-                  - !Sub
-                    - arn:aws:s3:::${Bucket}
-                    - Bucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
-                  - !Sub
-                    - arn:aws:s3:::${Bucket}/*
-                    - Bucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
+                  - !Sub arn:aws:s3:::${Bucket}
+                  - !Sub arn:aws:s3:::${Bucket}/*
+                Condition: {}
+          # bucket resolved below
+          # (CloudFormation substitution)
+    Metadata:
+      Bucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
 
 # -------------------------------------------------
 # GLUE JOB
@@ -95,7 +96,7 @@ Resources:
         MaxConcurrentRuns: 1
 
 # -------------------------------------------------
-# LAMBDA ROLE – GLUE TRIGGER
+# LAMBDA ROLE
 # -------------------------------------------------
   GlueTriggerLambdaRole:
     Type: AWS::IAM::Role
@@ -111,7 +112,7 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: LambdaGluePolicy
+        - PolicyName: StartGlueJob
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -120,14 +121,14 @@ Resources:
                 Resource: !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:job/glue-log-aggregation-${Environment}
 
 # -------------------------------------------------
-# GLUE TRIGGER LAMBDA
+# SINGLE LAMBDA FUNCTION
 # -------------------------------------------------
   GlueTriggerLambda:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub glue-trigger-${Environment}
       Runtime: python3.10
-      Handler: lambda_function.lambda_handler
+      Handler: trigger.lambda_handler
       Role: !GetAtt GlueTriggerLambdaRole.Arn
       Timeout: 60
       Code:
@@ -137,10 +138,9 @@ Resources:
         Variables:
           ENV: !Ref Environment
           GLUE_JOB_NAME: !Ref GlueJob
-          DATA_BUCKET: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
 
 # -------------------------------------------------
-# PERMISSION FOR S3 TO INVOKE LAMBDA
+# ALLOW S3 TO INVOKE LAMBDA
 # -------------------------------------------------
   AllowS3InvokeGlueLambda:
     Type: AWS::Lambda::Permission
@@ -153,12 +153,30 @@ Resources:
         - Bucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
 
 # -------------------------------------------------
+# S3 → LAMBDA TRIGGER (THIS CREATES THE TRIGGER)
+# -------------------------------------------------
+  DataBucketNotification:
+    Type: AWS::S3::BucketNotification
+    DependsOn: AllowS3InvokeGlueLambda
+    Properties:
+      Bucket: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: raw/
+            Function: !GetAtt GlueTriggerLambda.Arn
+
+# -------------------------------------------------
 # OUTPUTS
 # -------------------------------------------------
 Outputs:
-  GlueJobName:
-    Value: !Ref GlueJob
   LambdaFunctionName:
     Value: !Ref GlueTriggerLambda
+  GlueJobName:
+    Value: !Ref GlueJob
   DataBucket:
     Value: !FindInMap [EnvToBucket, !Ref Environment, DataBucket]
