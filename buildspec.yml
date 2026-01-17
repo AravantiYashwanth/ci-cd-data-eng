@@ -12,59 +12,46 @@ phases:
     runtime-versions:
       python: 3.10
     commands:
-      - set -e
-      - echo "Installing AWS CLI"
-      - pip install --upgrade awscli
+      - "set -e"
+      - "echo Installing AWS CLI"
+      - "pip install --upgrade awscli"
 
   pre_build:
     commands:
-      - echo "-------------------------------------"
-      - echo "Environment        : $ENV"
-      - echo "Region             : $AWS_DEFAULT_REGION"
-      - echo "Template file      : $TEMPLATE_FILE"
-      - echo "Artifact bucket    : $ARTIFACT_BUCKET"
-      - echo "-------------------------------------"
-
-      - export DATA_BUCKET=project-$ENV-ci-cd-21166
-      - echo "Data bucket        : $DATA_BUCKET"
-
-      - echo "Skipping CloudFormation validation handled at deploy stage"
+      - "echo -------------------------------------"
+      - "echo Environment        : $ENV"
+      - "echo Region             : $AWS_DEFAULT_REGION"
+      - "echo Template file      : $TEMPLATE_FILE"
+      - "echo Artifact bucket    : $ARTIFACT_BUCKET"
+      - "echo -------------------------------------"
+      - "export DATA_BUCKET=project-$ENV-ci-cd-21166"
+      - "echo Data bucket        : $DATA_BUCKET"
+      - "echo Skipping CloudFormation validation handled at deploy stage"
 
   build:
     commands:
-      - echo "-------------------------------------"
-      - echo "Uploading Glue script (log_aggregation_job.py)"
-
-      - test -f glue/log_aggregation_job.py
-      - aws s3 cp glue/log_aggregation_job.py s3://$DATA_BUCKET/scripts/glue/log_aggregation_job.py
-
-      - echo "-------------------------------------"
-      - echo "Packaging Lambda function"
-
-      - rm -f glue_trigger_lambda.zip
-      - cd lambda
-      - zip -r ../glue_trigger_lambda.zip .
-      - cd ..
-
-      - unzip -l glue_trigger_lambda.zip
-      - echo "Uploading Lambda ZIP"
-      - aws s3 cp glue_trigger_lambda.zip s3://$DATA_BUCKET/scripts/lambda/glue_trigger_lambda.zip
-
-      - echo "-------------------------------------"
-      - echo "Packaging CloudFormation template"
-
-      - aws cloudformation package \
-          --template-file $TEMPLATE_FILE \
-          --s3-bucket $ARTIFACT_BUCKET \
-          --s3-prefix $ENV/cloudformation \
-          --output-template-file $PACKAGED_TEMPLATE
+      - "echo -------------------------------------"
+      - "echo Uploading Glue scripts"
+      - "aws s3 sync glue/ s3://$DATA_BUCKET/scripts/glue/"
+      - "echo -------------------------------------"
+      - "echo Packaging Lambda function"
+      - "rm -f glue_trigger_lambda.zip"
+      - "cd lambda"
+      - "zip -r ../glue_trigger_lambda.zip ."
+      - "cd .."
+      - "unzip -l glue_trigger_lambda.zip"
+      - "echo Uploading Lambda ZIP"
+      - "aws s3 cp glue_trigger_lambda.zip s3://$DATA_BUCKET/scripts/lambda/glue_trigger_lambda.zip"
+      - "echo -------------------------------------"
+      - "echo Packaging CloudFormation template"
+      - "aws cloudformation package --template-file $TEMPLATE_FILE --s3-bucket $ARTIFACT_BUCKET --s3-prefix $ENV/cloudformation --output-template-file $PACKAGED_TEMPLATE"
 
   post_build:
     commands:
-      - echo "-------------------------------------"
-      - echo "Build completed successfully"
-      - echo "Environment : $ENV"
-      - echo "-------------------------------------"
+      - "echo -------------------------------------"
+      - "echo Build completed successfully"
+      - "echo Environment : $ENV"
+      - "echo -------------------------------------"
 
 artifacts:
   files:
